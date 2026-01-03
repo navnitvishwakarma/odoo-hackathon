@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Payroll Management - Worklify</title>
+    <link rel="stylesheet" href="/style.css" />
+</head>
+
+<body>
+    <div class="app-container">
+        <div id="sidebar-container"></div>
+        <div id="header-container"></div>
+
+        <main class="main-content">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+                <div>
+                    <h1>Payroll</h1>
+                    <p class="page-subtitle">Manage employee salaries and slips.</p>
+                </div>
+                <div style="display: flex; gap: 12px;">
+                    <select id="month-select" class="form-input" style="width: auto;">
+                        <option value="January">January</option>
+                        <option value="February">February</option>
+                        <option value="March">March</option>
+                        <option value="April">April</option>
+                        <option value="May">May</option>
+                        <option value="June">June</option>
+                        <option value="July">July</option>
+                        <option value="August">August</option>
+                        <option value="September">September</option>
+                        <option value="October">October</option>
+                        <option value="November">November</option>
+                        <option value="December">December</option>
+                    </select>
+                    <select id="year-select" class="form-input" style="width: auto;">
+                        <option value="2026">2026</option>
+                        <option value="2025">2025</option>
+                    </select>
+                    <button id="generate-btn" class="btn btn-primary">Generate Slips for Month</button>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="table-container">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Generated Date</th>
+                                <th>Employee Name</th>
+                                <th>Emp ID</th>
+                                <th>Month/Year</th>
+                                <th>Net Pay</th>
+                                <th>Status</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="payroll-table-body">
+                            <!-- JS Injection -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Payslip Modal -->
+    <div id="slip-modal"
+        style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;">
+        <div class="card" style="width: 500px; max-width: 90%;">
+            <div
+                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--border-light);">
+                <h2 style="margin: 0; font-size: 1.5rem;">Salary Slip</h2>
+                <button onclick="document.getElementById('slip-modal').style.display = 'none'"
+                    style="background: none; border: none; font-size: 1.5rem; cursor: pointer;">&times;</button>
+            </div>
+
+            <div id="slip-content">
+                <!-- JS Injected -->
+            </div>
+
+            <div style="margin-top: 24px; text-align: right;">
+                <button class="btn btn-primary" onclick="window.print()">Print Slip</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { renderHeader } from '/shared/header.js';
+        import { renderSidebar } from '/shared/sidebar.js';
+        import { data, generatePayroll, initData } from '/shared/data.js';
+        import { formatDate } from '/shared/utils.js';
+
+        async function init() {
+            await initData();
+
+            // Session Check
+            const sessionStr = localStorage.getItem('worklify_session');
+            if (!sessionStr) {
+                window.location.href = '/index.html';
+                return;
+            }
+            const session = JSON.parse(sessionStr);
+            if (session.role !== 'admin') {
+                window.location.href = '/index.html';
+                return;
+            }
+
+            renderHeader('header-container', session.name || 'Admin', 'AD');
+            renderSidebar('sidebar-container', 'payroll', 'admin');
+
+            window.viewSlip = (id) => {
+                const slip = data.payroll.find(p => p.id === id);
+                if (!slip) return;
+
+                const content = document.getElementById('slip-content');
+                content.innerHTML = `
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px;">
+                        <div>
+                            <p class="text-secondary" style="font-size: 0.8rem;">Employee Name</p>
+                            <p style="font-weight: 600;">${slip.employeeName}</p>
+                        </div>
+                        <div>
+                            <p class="text-secondary" style="font-size: 0.8rem;">Employee ID</p>
+                            <p style="font-weight: 600;">${slip.employeeId}</p>
+                        </div>
+                        <div>
+                            <p class="text-secondary" style="font-size: 0.8rem;">Pay Period</p>
+                            <p style="font-weight: 600;">${slip.month} ${slip.year}</p>
+                        </div>
+                        <div>
+                            <p class="text-secondary" style="font-size: 0.8rem;">Generated On</p>
+                            <p style="font-weight: 600;">${new Date(slip.generatedDate).toLocaleDateString()}</p>
+                        </div>
+                    </div>
+
+                    <div style="background: var(--bg-light); padding: 16px; border-radius: 8px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                            <span>Basic Salary</span>
+                            <span>₹${slip.basic.toLocaleString()}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                            <span>HRA</span>
+                            <span>₹${slip.hra.toLocaleString()}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                            <span>DA</span>
+                            <span>₹${slip.da.toLocaleString()}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 16px; color: var(--status-danger);">
+                            <span>Deductions</span>
+                            <span>-₹${slip.deductions.toLocaleString()}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; padding-top: 12px; border-top: 1px solid #ccc; font-weight: 700; font-size: 1.1rem;">
+                            <span>Net Payable</span>
+                            <span style="color: var(--status-success);">₹${slip.net.toLocaleString()}</span>
+                        </div>
+                    </div>
+                `;
+
+                document.getElementById('slip-modal').style.display = 'flex';
+            };
+
+            renderTable();
+        }
+
+        const tableBody = document.getElementById('payroll-table-body');
+        const generateBtn = document.getElementById('generate-btn');
+        const monthSelect = document.getElementById('month-select');
+        const yearSelect = document.getElementById('year-select');
+
+        // Set default month to current
+        monthSelect.value = new Date().toLocaleString('default', { month: 'long' });
+
+        function renderTable() {
+            const payrolls = data.payroll || [];
+            // Sort by latest
+            payrolls.sort((a, b) => new Date(b.generatedDate) - new Date(a.generatedDate));
+
+            if (payrolls.length === 0) {
+                tableBody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">No generated slips found.</td></tr>';
+                return;
+            }
+
+            tableBody.innerHTML = payrolls.map(slip => `
+                <tr>
+                    <td>${new Date(slip.generatedDate).toLocaleDateString()}</td>
+                    <td>${slip.employeeName}</td>
+                    <td>${slip.employeeId}</td>
+                    <td>${slip.month} ${slip.year}</td>
+                    <td style="font-weight: 600;">₹${slip.net.toLocaleString()}</td>
+                    <td><span style="background: #D1FAE5; color: #065F46; padding: 2px 8px; border-radius: 99px; font-size: 0.8rem;">Generated</span></td>
+                    <td>
+                        <button class="btn btn-secondary" style="padding: 4px 12px; font-size: 0.8rem;" onclick="window.viewSlip(${slip.id})">View Slip</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        generateBtn.addEventListener('click', () => {
+            const m = monthSelect.value;
+            const y = yearSelect.value;
+            if (confirm(`Generate payroll for all employees for ${m} ${y}?`)) {
+                generatePayroll(m, y);
+                renderTable();
+                alert('Payroll generated successfully!');
+            }
+        });
+
+
+
+        init();
+    </script>
+</body>
+
+</html>

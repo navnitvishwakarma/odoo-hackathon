@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Attendance Log - Worklify</title>
+    <link rel="stylesheet" href="/style.css" />
+</head>
+
+<body>
+    <div class="app-container">
+        <div id="sidebar-container"></div>
+        <div id="header-container"></div>
+
+        <main class="main-content">
+            <h1>Attendance Log</h1>
+            <p class="page-subtitle">View daily check-ins and work hours.</p>
+
+            <div class="card" style="margin-bottom: 24px; padding: 16px;">
+                <div style="display: flex; gap: 16px; align-items: flex-end;">
+                    <div class="form-group" style="margin-bottom: 0; flex: 1;">
+                        <label class="form-label">Date</label>
+                        <input type="date" id="filter-date" class="form-input">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0; flex: 1;">
+                        <label class="form-label">Employee</label>
+                        <select id="filter-employee" class="form-input">
+                            <option value="all">All Employees</option>
+                            <!-- JS Injected -->
+                        </select>
+                    </div>
+                    <button id="btn-reset" class="btn btn-secondary" style="height: 42px;">Reset</button>
+                </div>
+            </div>
+
+            <div class="card" style="padding: 0; overflow: hidden;">
+                <div class="table-container">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Employee</th>
+                                <th>Date</th>
+                                <th>Check In</th>
+                                <th>Check Out</th>
+                                <th>Status</th>
+                                <th>Total Hours</th>
+                            </tr>
+                        </thead>
+                        <tbody id="attendance-tbody">
+                            <!-- JS Injection -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script type="module">
+        import { renderHeader } from '/shared/header.js';
+        import { renderSidebar } from '/shared/sidebar.js';
+        import { data, initData } from '/shared/data.js';
+
+        async function init() {
+            await initData();
+
+            // Session Check
+            const sessionStr = localStorage.getItem('worklify_session');
+            if (!sessionStr) {
+                window.location.href = '/index.html';
+                return;
+            }
+            const session = JSON.parse(sessionStr);
+            if (session.role !== 'admin') {
+                window.location.href = '/index.html';
+                return;
+            }
+
+            renderHeader('header-container', session.name || 'Admin', 'AD');
+            renderSidebar('sidebar-container', 'attendance', 'admin');
+
+            // Populate Filter
+            const empSelect = document.getElementById('filter-employee');
+            data.employees.forEach(emp => {
+                const opt = document.createElement('option');
+                opt.value = emp.employeeId;
+                opt.textContent = `${emp.name} (${emp.employeeId})`;
+                empSelect.appendChild(opt);
+            });
+
+            // Event Listeners
+            document.getElementById('filter-date').addEventListener('change', renderTable);
+            document.getElementById('filter-employee').addEventListener('change', renderTable);
+            document.getElementById('btn-reset').addEventListener('click', () => {
+                document.getElementById('filter-date').value = '';
+                document.getElementById('filter-employee').value = 'all';
+                renderTable();
+            });
+
+            renderTable();
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('attendance-tbody');
+            let logs = data.attendance;
+
+            // Filters
+            const dateFilter = document.getElementById('filter-date').value;
+            const empFilter = document.getElementById('filter-employee').value;
+
+            if (dateFilter) {
+                // date in DB is "M/D/YYYY" usually, simple comparison or normalization needed
+                // Input is YYYY-MM-DD.
+                // Let's match by creating Date objects or string compare if format matches
+                // For this demo, let's assume we convert DB date to ISO for compare or vice versa
+                // Simpler: Compare locale date strings might vary. Let's try standard JS Date comparison.
+                const fDate = new Date(dateFilter).toDateString();
+                logs = logs.filter(l => new Date(l.date).toDateString() === fDate);
+            }
+
+            if (empFilter !== 'all') {
+                logs = logs.filter(l => l.employeeId === empFilter);
+            }
+
+            // Sort by latest date
+            logs.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+            if (logs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">No attendance records found.</td></tr>';
+            } else {
+                tbody.innerHTML = logs.map(log => {
+                    // FIX: Lookup by employeeId (string) e.g. "EMP002"
+                    const emp = data.employees.find(e => e.employeeId === log.employeeId);
+                    const empName = emp ? emp.name : log.employeeId;
+                    const duration = calculateDuration(log.checkIn, log.checkOut);
+
+                    // Status Logic (Late if after 9:30 AM)
+                    let statusBadge = '<span style="color: var(--status-success); font-weight: 500;">On Time</span>';
+                    const [time, modifier] = log.checkIn.split(' ');
+                    let [h, m] = time.split(':').map(Number);
+                    if (modifier === 'AM' && (h > 9 || (h === 9 && m > 30))) {
+                        statusBadge = '<span style="color: var(--status-warning); font-weight: 500;">Late</span>';
+                    }
+                    if (modifier === 'PM' && h !== 12) { // Checking in PM is definitely late for morning shift
+                        statusBadge = '<span style="color: var(--status-danger); font-weight: 500;">Late</span>';
+                    }
+
+
+                    return `
+                        <tr>
+                            <td style="font-weight: 500; color: var(--text-primary);">
+                                ${empName} <span style="font-size:0.75rem; color: #999;">(${log.employeeId})</span>
+                            </td>
+                            <td>${log.date}</td>
+                            <td>${log.checkIn}</td>
+                            <td>${log.checkOut}</td>
+                            <td>${statusBadge}</td>
+                            <td style="font-weight: 500; color: var(--accent-blue);">${duration}</td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+        }
+
+        function calculateDuration(start, end) {
+            if (!start || !end || end === '-') return '-';
+
+            // Helper to parse "09:00 AM" to minutes
+            const parseTime = (timeStr) => {
+                const [time, modifier] = timeStr.split(' ');
+                let [hours, minutes] = time.split(':');
+
+                if (hours === '12') {
+                    hours = '00';
+                }
+
+                if (modifier === 'PM') {
+                    hours = parseInt(hours, 10) + 12;
+                }
+
+                return parseInt(hours, 10) * 60 + parseInt(minutes, 10);
+            };
+
+            try {
+                const startMins = parseTime(start);
+                const endMins = parseTime(end);
+
+                const diff = endMins - startMins;
+                const h = Math.floor(diff / 60);
+                const m = diff % 60;
+
+                return `${h}h ${m}m`;
+            } catch (e) {
+                return '-';
+            }
+        }
+
+        init();
+    </script>
+</body>
+
+</html>

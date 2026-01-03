@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Time Off Requests - Worklify</title>
+    <link rel="stylesheet" href="/style.css" />
+</head>
+
+<body>
+    <div class="app-container">
+        <div id="sidebar-container"></div>
+        <div id="header-container"></div>
+
+        <main class="main-content">
+            <h1>Leave Requests</h1>
+            <p class="page-subtitle">Approve or reject employee leave requests.</p>
+
+            <!-- Rejection Modal -->
+            <div id="reject-modal"
+                style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 100; justify-content: center; align-items: center;">
+                <div class="card" style="width: 400px; max-width: 90%;">
+                    <h3>Reject Request</h3>
+                    <p class="text-secondary" style="margin-bottom: 16px;">Please specify why this request is being
+                        rejected.</p>
+
+                    <div class="form-group">
+                        <label class="form-label">Rejection Category</label>
+                        <select id="reject-category" class="form-input">
+                            <option>Staffing Shortage</option>
+                            <option>Critical Project Deadline</option>
+                            <option>Inufficient Leave Balance</option>
+                            <option>Policy Violation</option>
+                            <option>Other</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Reason / Feedback</label>
+                        <textarea id="reject-reason" class="form-input" rows="3"
+                            placeholder="Enter specific details..."></textarea>
+                    </div>
+
+                    <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px;">
+                        <button class="btn btn-secondary" onclick="window.closeRejectModal()">Cancel</button>
+                        <button class="btn btn-primary" style="background-color: var(--status-danger);"
+                            onclick="window.confirmRejection()">Reject Request</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card" style="padding: 0; overflow: hidden;">
+                <div class="table-container">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Employee</th>
+                                <th>Type</th>
+                                <th>Dates</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="requests-tbody">
+                            <!-- JS Injection -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script type="module">
+        import { renderHeader } from '/shared/header.js';
+        import { renderSidebar } from '/shared/sidebar.js';
+        import { data, updateTimeOffStatus, updateEmployeeStatus, initData } from '/shared/data.js';
+        import { getStatusColor } from '/shared/utils.js';
+
+        async function init() {
+            await initData();
+
+            // Session Check
+            const sessionStr = localStorage.getItem('worklify_session');
+            if (!sessionStr) {
+                window.location.href = '/index.html';
+                return;
+            }
+            const session = JSON.parse(sessionStr);
+            if (session.role !== 'admin') {
+                window.location.href = '/index.html';
+                return;
+            }
+
+            renderHeader('header-container', session.name || 'Admin', 'AD');
+            renderSidebar('sidebar-container', 'timeoff', 'admin');
+
+            renderTable();
+        }
+
+        let currentRejectId = null;
+
+        window.openRejectModal = (id) => {
+            currentRejectId = id;
+            document.getElementById('reject-modal').style.display = 'flex';
+        };
+
+        window.closeRejectModal = () => {
+            currentRejectId = null;
+            document.getElementById('reject-modal').style.display = 'none';
+            document.getElementById('reject-reason').value = '';
+        };
+
+        window.confirmRejection = () => {
+            if (!currentRejectId) return;
+            const category = document.getElementById('reject-category').value;
+            const reason = document.getElementById('reject-reason').value;
+
+            updateTimeOffStatus(currentRejectId, 'Rejected', category, reason);
+            window.closeRejectModal();
+            renderTable();
+        };
+
+        function renderTable() {
+            const tbody = document.getElementById('requests-tbody');
+            const requests = data.timeoff;
+
+            if (requests.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">No leave requests found.</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = requests.map(req => {
+                // FIX: Lookup by employeeId (string) e.g. "EMP005"
+                const emp = data.employees.find(e => e.employeeId === req.employeeId);
+                const empName = emp ? emp.name : req.employeeName || 'Unknown';
+
+                let actions = '-';
+                if (req.status === 'Pending') {
+                    actions = `
+                        <div style="display: flex; gap: 8px;">
+                            <button class="btn btn-primary" style="padding: 4px 12px; font-size: 0.75rem;" onclick="window.handleApprove(${req.id})">Approve</button>
+                            <button class="btn btn-secondary" style="padding: 4px 12px; font-size: 0.75rem; color: var(--status-danger); border-color: var(--status-danger);" onclick="window.openRejectModal(${req.id})">Reject</button>
+                        </div>
+                    `;
+                } else if (req.status === 'Rejected') {
+                    // Show why it was rejected
+                    actions = `<span style="font-size: 0.8rem; color: var(--text-secondary);">Reason: ${req.rejectionCategory || 'N/A'}</span>`;
+                }
+
+                return `
+                    <tr>
+                        <td style="font-weight: 500;">${empName}</td>
+                        <td>${req.type}</td>
+                        <td>${req.startDate} to ${req.endDate}</td>
+                        <td><span style="color: ${getStatusColor(req.status)}; font-weight: 600;">${req.status}</span></td>
+                        <td>${actions}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        window.handleApprove = (id) => {
+            updateTimeOffStatus(id, 'Approved');
+            const req = data.timeoff.find(r => r.id === id);
+            if (req) {
+                updateEmployeeStatus(req.employeeId, 'leave');
+            }
+            renderTable();
+        };
+
+        renderTable();
+        init();
+    </script>
+</body>
+
+</html>

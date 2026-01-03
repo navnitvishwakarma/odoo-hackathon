@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Login - Worklify</title>
+    <link rel="stylesheet" href="/style.css" />
+    <style>
+        body {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background-color: var(--bg-light);
+        }
+
+        .login-card {
+            width: 100%;
+            max-width: 400px;
+            padding: 40px;
+        }
+
+        .brand {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+
+        .brand-logo {
+            font-size: 2rem;
+            font-weight: 800;
+            color: var(--accent-blue);
+            margin-bottom: 8px;
+            display: inline-block;
+        }
+
+        .brand-text {
+            color: var(--text-secondary);
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="card login-card">
+        <div class="brand">
+            <div class="brand-logo">Worklify</div>
+            <p class="brand-text">Sign in to your workspace</p>
+        </div>
+
+        <form id="login-form">
+            <div class="form-group">
+                <label class="form-label" for="identity">Employee ID or Email</label>
+                <input type="text" id="identity" class="form-input" placeholder="e.g. ADM001 or admin@worklify.com"
+                    required value="ADM001">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="password">Password</label>
+                <input type="password" id="password" class="form-input" placeholder="••••••••" required
+                    value="password">
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-full"
+                style="margin-top: 16px; height: 48px; font-size: 1rem;">
+                Sign In
+            </button>
+
+            <div style="margin-top: 24px; text-align: center; font-size: 0.875rem; color: var(--text-secondary);">
+                <p>Demo Credentials:</p>
+                <p>Admin: ADM001 / admin@worklify.com</p>
+                <p>Employee: EMP001 / emp@worklify.com</p>
+            </div>
+        </form>
+    </div>
+
+    <script type="module" src="/main.js"></script>
+
+    <script type="module">
+        import { data, initData } from '/shared/data.js';
+
+        const loginForm = document.getElementById('login-form');
+
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const identity = document.getElementById('identity').value.trim();
+            const password = document.getElementById('password').value; // Password ignored for prototype
+
+            const btn = loginForm.querySelector('button');
+            const originalText = btn.textContent;
+            btn.textContent = "Verifying...";
+            btn.disabled = true;
+
+            try {
+                // Ensure we have latest data
+                await initData();
+
+                // 1. Check Admin
+                if (identity === 'admin@worklify.com' || identity === 'ADM001') {
+                    localStorage.setItem('worklify_session', JSON.stringify({ role: 'admin', id: 'ADM001', name: 'Admin User' }));
+                    window.location.href = '/admin/dashboard.html';
+                    return;
+                }
+
+                // 2. Check Employees
+                const employee = data.employees.find(e => e.employeeId === identity || e.email === identity);
+
+                if (employee) {
+                    // Password Check
+                    // Default logic: if no password in DB (old records), assume '123456'
+                    // actually, schema default '123456' applied to NEW records. Old records might not have it unless fetched again.
+                    // Since initData fetches all, and mongoose defaults might not apply retroactively to already saved docs unless we saved them again?
+                    // Actually Mongoose defaults apply when you `find`? No, only on creation usually.
+                    // But good news: initData fetches raw docs. 
+                    // Let's assume '123456' if undefined.
+
+                    const dbPass = employee.password || '123456';
+
+                    if (dbPass !== password) {
+                        alert('Invalid password.');
+                        btn.textContent = originalText;
+                        btn.disabled = false;
+                        return;
+                    }
+
+                    localStorage.setItem('worklify_session', JSON.stringify({ role: 'employee', id: employee.employeeId, name: employee.name }));
+                    window.location.href = '/employee/dashboard.html';
+                } else {
+                    alert('Invalid credentials. Please check your Employee ID or Email.');
+                    btn.textContent = originalText;
+                    btn.disabled = false;
+                }
+
+            } catch (err) {
+                console.error(err);
+                alert('Connection error. Please try again.');
+                btn.textContent = originalText;
+                btn.disabled = false;
+            }
+        });
+    </script>
+</body>
+
+</html>
