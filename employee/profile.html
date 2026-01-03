@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>My Profile - Worklify</title>
+    <link rel="stylesheet" href="/style.css" />
+</head>
+
+<body>
+    <div class="app-container">
+        <div id="sidebar-container"></div>
+        <div id="header-container"></div>
+
+        <main class="main-content">
+            <h1>My Profile</h1>
+            <p class="page-subtitle">Manage your personal details and account settings.</p>
+
+            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 24px;">
+                <!-- Main Column: Editable Profile -->
+                <div style="display: flex; flex-direction: column; gap: 24px;">
+                    <!-- Personal Details -->
+                    <div class="card">
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+                            <h2 class="card-title" style="margin:0;">Personal Details</h2>
+                            <button form="profile-form" type="submit" class="btn btn-primary">Save Changes</button>
+                        </div>
+
+                        <form id="profile-form">
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                                <div class="form-group">
+                                    <label class="form-label">Full Name</label>
+                                    <input type="text" id="p-name" class="form-input" required>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Email Address</label>
+                                    <input type="email" id="p-email" class="form-input" required>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Phone Number</label>
+                                    <input type="tel" id="p-phone" class="form-input" placeholder="+91...">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Address</label>
+                                    <input type="text" id="p-address" class="form-input" placeholder="City, State">
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Work Stats (Read Only) -->
+                    <div class="card">
+                        <h2 class="card-title">Work Statistics</h2>
+                        <div id="stats-container"
+                            style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 16px;">
+                            <div
+                                style="background: var(--bg-light); padding: 12px; border-radius: 8px; text-align: center;">
+                                <div style="font-size: 0.9rem; color: var(--text-secondary);">Present Days</div>
+                                <div style="font-size: 1.5rem; font-weight: 700; color: var(--status-success);"
+                                    id="stat-present">-</div>
+                            </div>
+                            <div
+                                style="background: var(--bg-light); padding: 12px; border-radius: 8px; text-align: center;">
+                                <div style="font-size: 0.9rem; color: var(--text-secondary);">Absent Days</div>
+                                <div style="font-size: 1.5rem; font-weight: 700; color: var(--status-danger);"
+                                    id="stat-absent">-</div>
+                            </div>
+                            <div
+                                style="background: var(--bg-light); padding: 12px; border-radius: 8px; text-align: center;">
+                                <div style="font-size: 0.9rem; color: var(--text-secondary);">Leave Balance</div>
+                                <div style="font-size: 1.5rem; font-weight: 700; color: var(--accent-blue);"
+                                    id="stat-leave">-</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Side Column: ID, Status, Security -->
+                <div style="display: flex; flex-direction: column; gap: 24px;">
+                    <!-- System Info -->
+                    <div class="card">
+                        <h2 class="card-title">System Info</h2>
+                        <div style="margin-bottom: 12px;">
+                            <p class="text-secondary" style="font-size: 0.8rem;">Employee ID</p>
+                            <p style="font-weight: 600;" id="sys-id">-</p>
+                        </div>
+                        <div style="margin-bottom: 12px;">
+                            <p class="text-secondary" style="font-size: 0.8rem;">Role</p>
+                            <p style="font-weight: 600; text-transform: capitalize;" id="sys-role">-</p>
+                        </div>
+                        <div style="margin-bottom: 12px;">
+                            <p class="text-secondary" style="font-size: 0.8rem;">Status</p>
+                            <span id="sys-status"
+                                style="padding: 4px 8px; border-radius: 99px; font-size: 0.8rem; font-weight: 500;">-</span>
+                        </div>
+                    </div>
+
+                    <!-- Change Password -->
+                    <div class="card">
+                        <h2 class="card-title">Security</h2>
+                        <form id="password-form">
+                            <div class="form-group">
+                                <label class="form-label">Current Password</label>
+                                <input type="password" id="old-pass" class="form-input" required>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">New Password</label>
+                                <input type="password" id="new-pass" class="form-input" required minlength="6">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Confirm New Password</label>
+                                <input type="password" id="confirm-pass" class="form-input" required minlength="6">
+                            </div>
+                            <button type="submit" class="btn btn-secondary" style="width: 100%;">Update
+                                Password</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script type="module">
+        import { renderHeader } from '/shared/header.js';
+        import { renderSidebar } from '/shared/sidebar.js';
+        import { data, initData, changePassword, updateEmployee } from '/shared/data.js';
+
+        async function init() {
+            await initData();
+
+            // Session Check
+            const sessionStr = localStorage.getItem('worklify_session');
+            if (!sessionStr) {
+                window.location.href = '/index.html';
+                return;
+            }
+            const session = JSON.parse(sessionStr);
+
+            // Render Layout
+            renderHeader('header-container', session.name, session.name.substring(0, 2).toUpperCase());
+            const role = session.role === 'admin' ? 'admin' : 'employee';
+            renderSidebar('sidebar-container', 'profile', role);
+
+            // Fetch Employee Data
+            let emp = data.employees.find(e => e.employeeId === session.id);
+
+            if (session.id === 'ADM001' && !emp) {
+                // Hardcoded Admin Logic (simplified)
+                document.getElementById('p-name').value = "Admin User";
+                document.getElementById('p-email').value = "admin@worklify.com";
+                document.getElementById('sys-role').textContent = "Administrator";
+                document.querySelectorAll('input').forEach(i => i.disabled = true);
+                alert("Profile editing is disabled for the default root admin.");
+                return;
+            }
+
+            if (emp) {
+                // Populate Form
+                document.getElementById('p-name').value = emp.name;
+                document.getElementById('p-email').value = emp.email || '';
+                document.getElementById('p-phone').value = emp.phone || '';
+                document.getElementById('p-address').value = emp.address || '';
+
+                // Populate System Info
+                document.getElementById('sys-id').textContent = emp.employeeId;
+                document.getElementById('sys-role').textContent = emp.role;
+                const statusEl = document.getElementById('sys-status');
+                statusEl.textContent = emp.status || 'Active';
+                statusEl.style.background = emp.status === 'active' ? '#D1FAE5' : '#F3F4F6';
+                statusEl.style.color = emp.status === 'active' ? '#065F46' : '#374151';
+
+                // Populate Stats
+                if (emp.attendanceSummary) {
+                    document.getElementById('stat-present').textContent = emp.attendanceSummary.presentDays || 0;
+                    document.getElementById('stat-absent').textContent = emp.attendanceSummary.absentDays || 0;
+                    document.getElementById('stat-leave').textContent = emp.attendanceSummary.leaveDays || 0;
+                }
+
+                // Handle Profile Update
+                document.getElementById('profile-form').addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const updatedData = {
+                        name: document.getElementById('p-name').value,
+                        email: document.getElementById('p-email').value,
+                        phone: document.getElementById('p-phone').value,
+                        address: document.getElementById('p-address').value
+                    };
+
+                    try {
+                        const btn = e.target.querySelector('button'); // find button if triggered by button click, but "form" attr click submits form.
+                        // Actually querySelector inside form might not find external button.
+                        // But form submission works.
+
+                        await updateEmployee(emp.id, updatedData); // Use numeric ID for PUT
+                        alert("Profile updated successfully!");
+                        // Update local storage name if changed
+                        if (updatedData.name !== session.name) {
+                            session.name = updatedData.name;
+                            localStorage.setItem('worklify_session', JSON.stringify(session));
+                            location.reload(); // Reload to update header name
+                        }
+                    } catch (err) {
+                        alert("Error updating profile: " + err.message);
+                    }
+                });
+
+                // Handle Password Update
+                document.getElementById('password-form').addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const oldPass = document.getElementById('old-pass').value;
+                    const newPass = document.getElementById('new-pass').value;
+                    const confirmPass = document.getElementById('confirm-pass').value;
+
+                    if (newPass !== confirmPass) {
+                        alert("New passwords do not match!");
+                        return;
+                    }
+
+                    try {
+                        await changePassword(emp.employeeId, oldPass, newPass);
+                        alert("Password updated successfully!");
+                        e.target.reset();
+                    } catch (err) {
+                        alert("Error: " + err.message);
+                    }
+                });
+            }
+        }
+
+        init();
+    </script>
+</body>
+
+</html>

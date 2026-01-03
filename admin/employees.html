@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Employees - Worklify</title>
+    <link rel="stylesheet" href="/style.css" />
+    <style>
+        /* Modal Styles */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal {
+            background: white;
+            padding: 24px;
+            border-radius: 12px;
+            width: 100%;
+            max-width: 600px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="app-container">
+        <div id="sidebar-container"></div>
+        <div id="header-container"></div>
+
+        <main class="main-content">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+                <div>
+                    <h1>Employees</h1>
+                    <p class="page-subtitle" style="margin-bottom: 0;">Manage your team directory.</p>
+                </div>
+                <button id="btn-add-employee" class="btn btn-primary">
+                    <span style="margin-right: 8px; font-size: 1.2rem;">+</span> Add Employee
+                </button>
+            </div>
+
+            <div id="employee-grid"
+                style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 24px;">
+                <!-- JS Injection -->
+            </div>
+        </main>
+    </div>
+
+    <!-- Modal -->
+    <div id="analytics-modal" class="modal-overlay">
+        <div class="modal">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+                <h2 style="margin: 0;" id="modal-title">Daily Task Progress</h2>
+                <button onclick="closeModal()" class="btn btn-secondary"
+                    style="height: 32px; padding: 0 12px;">Close</button>
+            </div>
+
+            <div id="modal-profile-info"
+                style="margin-bottom: 24px; padding: 16px; background: var(--bg-light); border-radius: 8px;">
+                <!-- JS Injection -->
+            </div>
+
+            <div style="overflow-x: auto;">
+                <table class="table" style="width: 100%;">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Total Tasks</th>
+                            <th>Completed Tasks</th>
+                            <th>Productivity %</th>
+                            <th>Context</th>
+                        </tr>
+                    </thead>
+                    <tbody id="modal-table-body">
+                        <!-- JS Injection -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Employee Modal -->
+    <div id="add-employee-modal" class="modal-overlay">
+        <div class="modal">
+            <h2 style="margin-bottom: 24px;">Add New Employee</h2>
+            <form id="add-employee-form">
+                <div class="form-group">
+                    <label class="form-label">Full Name</label>
+                    <input type="text" name="name" class="form-input" required placeholder="e.g. Alice Smith">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Employee ID</label>
+                    <input type="text" name="employeeId" class="form-input" required placeholder="e.g. EMP005">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Email Address</label>
+                    <input type="email" name="email" class="form-input" required placeholder="e.g. alice@dayflow.com">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Role</label>
+                    <input type="text" name="role" class="form-input" required placeholder="e.g. Designer">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Phone</label>
+                    <input type="tel" name="phone" class="form-input" placeholder="e.g. 555-0199">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Address</label>
+                    <input type="text" name="address" class="form-input" placeholder="City, State">
+                </div>
+
+                <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px;">
+                    <button type="button" onclick="closeAddModal()" class="btn btn-secondary">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Add Employee</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script type="module">
+        import { renderHeader } from '/shared/header.js';
+        import { renderSidebar } from '/shared/sidebar.js';
+        import { data, addEmployee, initData } from '/shared/data.js';
+        import { formatDate, getStatusColor } from '/shared/utils.js';
+
+        // Wait for DOM
+        document.addEventListener('DOMContentLoaded', init);
+
+        // --- Elements ---
+        const grid = document.getElementById('employee-grid');
+        const modal = document.getElementById('analytics-modal');
+        const modalTitle = document.getElementById('modal-title');
+        const modalBody = document.getElementById('modal-table-body');
+
+        const addModal = document.getElementById('add-employee-modal');
+        const addForm = document.getElementById('add-employee-form');
+        const btnAdd = document.getElementById('btn-add-employee');
+
+        async function init() {
+            try {
+                // Initialize Data
+                await initData();
+
+                // Session Check
+                const sessionStr = localStorage.getItem('worklify_session');
+                if (!sessionStr) {
+                    window.location.href = '/index.html';
+                    return;
+                }
+                const session = JSON.parse(sessionStr);
+                if (session.role !== 'admin') {
+                    window.location.href = '/index.html';
+                    return;
+                }
+
+                // Layout
+                renderHeader('header-container', 'Admin User', 'AD');
+                renderSidebar('sidebar-container', 'employees', 'admin');
+
+                // Render Grid
+                renderEmployeeGrid();
+
+                // Attach Listeners
+                attachGlobalListeners();
+            } catch (err) {
+                console.error("Init Error:", err);
+                alert("Failed to initialize page. Check console.");
+            }
+        }
+
+        function renderEmployeeGrid() {
+            const grid = document.getElementById('employee-grid');
+            const employees = data.employees;
+
+            if (employees.length === 0) {
+                grid.innerHTML = '<p class="text-secondary">No employees found in database.</p>';
+            } else {
+                grid.innerHTML = employees.map(emp => `
+                    <div class="card employee-card" data-id="${emp.id}" style="text-align: center; cursor: pointer; transition: transform 0.2s;">
+                        <div class="user-avatar" style="width: 64px; height: 64px; font-size: 1.5rem; margin: 0 auto 16px auto; background-color: var(--bg-light); color: var(--text-primary);">
+                            ${emp.avatar}
+                        </div>
+                        <h3>${emp.name}</h3>
+                        <p class="text-secondary" style="font-size: 0.85rem; margin-bottom: 4px;">${emp.employeeId}</p>
+                        <p class="text-secondary" style="margin-bottom: 12px;">${emp.role}</p>
+                        <div style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 99px; background: var(--bg-light); font-size: 0.8rem; font-weight: 600;">
+                            <span style="width: 8px; height: 8px; border-radius: 50%; background-color: ${getStatusColor(emp.status)};"></span>
+                            <span style="text-transform: capitalize;">${emp.status}</span>
+                        </div>
+                    </div>
+                `).join('');
+
+                // Attach Card Clicks
+                document.querySelectorAll('.employee-card').forEach(card => {
+                    card.addEventListener('click', () => {
+                        openAnalyticsModal(card.dataset.id);
+                    });
+                });
+            }
+        }
+
+        function attachGlobalListeners() {
+            // Add Employee Button
+            if (btnAdd) {
+                btnAdd.addEventListener('click', () => {
+                    addModal.style.display = 'flex';
+                });
+            } else {
+                console.error("Btn Add not found");
+            }
+
+            // Close Analytics Modal (Outside Request)
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) modal.style.display = 'none';
+            });
+
+            // Close Add Modal (Outside Request)
+            addModal.addEventListener('click', (e) => {
+                if (e.target === addModal) {
+                    addModal.style.display = 'none';
+                    addForm.reset();
+                }
+            });
+
+            // Add Form Submit
+            addForm.addEventListener('submit', handleAddSubmit);
+        }
+
+        // --- Handlers ---
+
+        async function handleAddSubmit(e) {
+            e.preventDefault();
+            const formData = new FormData(addForm);
+            const newEmp = {
+                name: formData.get('name'),
+                employeeId: formData.get('employeeId'),
+                email: formData.get('email'),
+                role: formData.get('role'),
+                phone: formData.get('phone'),
+                address: formData.get('address')
+            };
+
+            try {
+                await addEmployee(newEmp);
+                alert('Employee added successfully!');
+                addModal.style.display = 'none';
+                addForm.reset();
+                // Re-fetch and Render
+                await initData();
+                renderEmployeeGrid();
+            } catch (err) {
+                alert('Error adding employee: ' + err.message);
+            }
+        }
+
+        // Expose Close functions to Window for inline onclicks (Backwards compatibility if any)
+        window.closeModal = () => { modal.style.display = 'none'; };
+        window.closeAddModal = () => {
+            addModal.style.display = 'none';
+            addForm.reset();
+        };
+
+        // --- Analytics Modal Logic ---
+        function openAnalyticsModal(empId) {
+            const employees = data.employees;
+            const emp = employees.find(e => e.id == empId);
+            if (!emp) return;
+
+            modalTitle.textContent = `${emp.name}`;
+
+            document.getElementById('modal-profile-info').innerHTML = `
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 0.9rem;">
+                    <div><strong>ID:</strong> ${emp.employeeId}</div>
+                    <div><strong>Role:</strong> ${emp.role}</div>
+                    <div><strong>Phone:</strong> ${emp.phone || 'N/A'}</div>
+                    <div><strong>Address:</strong> ${emp.address || 'N/A'}</div>
+                </div>
+            `;
+
+            // ... Table Logic from before ...
+            // (Re-using the logic manually for safety)
+            const targets = emp.dailyTargets || {};
+            const progress = emp.dailyProgress || {};
+            const productivity = emp.dailyProductivity || {};
+            const reasonsMap = emp.dailyTaskReasons || {};
+            const dates = Object.keys(targets).sort().reverse();
+
+            if (dates.length === 0) {
+                modalBody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">No data recorded yet.</td></tr>';
+            } else {
+                modalBody.innerHTML = dates.map(date => {
+                    const t = targets[date] || 0;
+                    const p = progress[date] || 0;
+                    const score = productivity[date] || 0;
+                    let prodDisplay = t === 0 ? '<span style="color: var(--text-secondary)">N/A</span>' :
+                        `<span style="font-weight: 600; color: ${score < 50 ? '#EF4444' : score < 80 ? '#F59E0B' : '#10B981'}">${score}%</span>`;
+
+                    // Reasons
+                    let reasonsHtml = '<span class="text-secondary">-</span>';
+                    const dailyReasons = reasonsMap[date];
+                    if (dailyReasons && Object.keys(dailyReasons).length > 0) {
+                        const counts = {};
+                        Object.values(dailyReasons).forEach(r => { counts[r] = (counts[r] || 0) + 1; });
+                        reasonsHtml = Object.entries(counts).map(([r, c]) =>
+                            `<span style="display: inline-block; background: #FEF3C7; color: #D97706; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; margin-right: 4px;">${r}: ${c}</span>`
+                        ).join(' ');
+                    }
+
+                    return `<tr><td>${formatDate(date)}</td><td>${t}</td><td>${p}</td><td>${prodDisplay}</td><td>${reasonsHtml}</td></tr>`;
+                }).join('');
+            }
+
+            modal.style.display = 'flex';
+        }
+    </script>
+
+
+    </script>
+</body>
+
+</html>

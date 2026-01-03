@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>My Dashboard - Worklify</title>
+    <link rel="stylesheet" href="/style.css" />
+    <!-- Load Global Scripts (Chart.js via main.js) -->
+    <script src="/main.js" defer></script>
+</head>
+
+<body>
+    <div class="app-container">
+        <div id="sidebar-container"></div>
+        <div id="header-container"></div>
+
+        <main class="main-content">
+            <h1>My Dashboard</h1>
+            <p class="page-subtitle">Manage your daily work status.</p>
+
+            <!-- Responsive Grid: Stacks on mobile, 2 columns on wide screens -->
+            <div
+                style="display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 32px; align-items: start;">
+
+                <!-- Left Column: Actions -->
+                <div style="display: flex; flex-direction: column; gap: 24px;">
+                    <!-- Check In/Out Card -->
+                    <div class="card">
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+                            <div>
+                                <h2 style="font-size: 1.25rem;">Today's Content</h2>
+                                <p class="text-secondary" id="current-date">...</p>
+                            </div>
+                            <div id="status-pill"
+                                style="padding: 6px 16px; border-radius: 99px; background: var(--bg-light); font-weight: 600;">
+                                Loading...
+                            </div>
+                        </div>
+
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                            <button id="btn-checkin" class="btn btn-primary"
+                                style="height: 50px; font-size: 1rem;">Check In</button>
+                            <button id="btn-checkout" class="btn btn-secondary"
+                                style="height: 50px; font-size: 1rem;">Check Out</button>
+                        </div>
+                        <p id="message-area" style="margin-top: 16px; font-size: 0.9rem; color: var(--text-secondary);">
+                        </p>
+                    </div>
+
+                    <!-- Today's Work Targets -->
+                    <div class="card">
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                            <h2 style="font-size: 1.25rem;">Today's Work Targets</h2>
+                            <span id="target-badge"
+                                style="background: var(--bg-light); padding: 4px 10px; border-radius: 12px; font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);">
+                                0 / 0
+                            </span>
+                        </div>
+
+                        <div id="tasks-container" style="display: flex; flex-direction: column; gap: 12px;">
+                            <!-- Task items will be injected here -->
+                            <p class="text-secondary" style="font-size: 0.9rem;">No targets set for today.</p>
+                        </div>
+
+                        <div id="submit-section"
+                            style="margin-top: 24px; border-top: 1px solid var(--border-light); padding-top: 16px;">
+                            <button id="btn-submit-tasks" class="btn btn-primary" style="width: 100%;">Submit Daily
+                                Progress</button>
+                            <p id="submit-msg"
+                                style="display: none; text-align: center; color: var(--status-success); font-weight: 500; margin-top: 8px;">
+                                <span style="font-size: 1.2rem;">✓</span> Progress submitted for today
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Column: Analytics Stack -->
+                <div style="display: flex; flex-direction: column; gap: 24px;">
+
+                    <!-- Attendance Chart -->
+                    <div class="card">
+                        <h2 style="font-size: 1.25rem; margin-bottom: 16px;">My Attendance Summary</h2>
+                        <div style="height: 200px; position: relative; display: flex; justify-content: center;">
+                            <canvas id="myAttendanceChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Productivity Chart -->
+                    <div class="card">
+                        <h2 style="font-size: 1.25rem; margin-bottom: 16px;">My Daily Productivity (Task-Based)</h2>
+                        <div style="height: 200px; position: relative;">
+                            <canvas id="myProductivityChart"></canvas>
+                        </div>
+                    </div>
+
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <!-- Camera / Check-In Modal -->
+    <div id="checkin-modal" class="modal-overlay">
+        <div class="modal" style="max-width: 500px; text-align: center;">
+            <h2 style="margin-bottom: 16px;">Selfie Verification</h2>
+            <p class="text-secondary" style="margin-bottom: 24px;">Please take a selfie within the office area to check
+                in.</p>
+
+            <div
+                style="background: #000; width: 100%; height: 300px; border-radius: 12px; margin-bottom: 24px; position: relative; overflow: hidden;">
+                <video id="camera-stream" autoplay playsinline
+                    style="width: 100%; height: 100%; object-fit: cover;"></video>
+                <canvas id="camera-canvas" style="display: none;"></canvas>
+            </div>
+
+            <p id="location-status" style="margin-bottom: 16px; font-size: 0.9rem; font-weight: 500;">Getting
+                location...</p>
+
+            <div style="display: flex; gap: 12px; justify-content: center;">
+                <button type="button" onclick="closeCheckInModal()" class="btn btn-secondary">Cancel</button>
+                <button type="button" id="btn-capture" class="btn btn-primary" disabled>Capture & Check In</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { renderHeader } from '/shared/header.js';
+        import { renderSidebar } from '/shared/sidebar.js';
+        import { data, updateEmployeeStatus, addAttendance, commit, getOfficeLocation, getDistanceFromLatLonInMeters, initData } from '/shared/data.js';
+        import { getStatusColor, formatDate, calculateDailyProductivity, calculateTaskBasedProductivity } from '/shared/utils.js';
+
+        await initData();
+
+        // Session Check
+        const sessionStr = localStorage.getItem('worklify_session');
+        if (!sessionStr) {
+            window.location.href = '/index.html';
+        }
+        const session = JSON.parse(sessionStr);
+        if (session.role !== 'employee') {
+            // If admin tries to access, maybe let them or redirect?
+            // For now, redirect to login if not employee
+            window.location.href = '/index.html';
+        }
+
+        const myId = session.id;
+        const employees = data.employees;
+        const me = employees.find(e => e.employeeId === myId);
+
+        renderHeader('header-container', me ? me.name : 'Employee', me ? 'ME' : 'EM');
+        renderSidebar('sidebar-container', 'dashboard', 'employee');
+
+        if (!me) {
+            alert('User record not found. Please log in again.');
+            localStorage.removeItem('dayflow_session');
+            window.location.href = '/index.html';
+        }
+
+        // Date Logic
+        const now = new Date();
+        const todayKey = now.toISOString().split('T')[0];
+
+        const dateEl = document.getElementById('current-date');
+        const statusEl = document.getElementById('status-pill');
+        const checkInBtn = document.getElementById('btn-checkin');
+        const checkOutBtn = document.getElementById('btn-checkout');
+        const messageEl = document.getElementById('message-area');
+
+        // Task Elements
+        const tasksContainer = document.getElementById('tasks-container');
+        const targetBadge = document.getElementById('target-badge');
+        const submitBtn = document.getElementById('btn-submit-tasks');
+        const submitMsg = document.getElementById('submit-msg');
+
+        // Mock Titles for Demo
+        const TASK_TITLES = [
+            "Review Pull Requests", "Daily Standup", "Update Documentation",
+            "Fix Login Bug", "Write Unit Tests", "Deploy to Staging",
+            "Client Sync Call", "Refactor CSS Modules", "Optimise Database Queries",
+            "Update Dependencies", "Team Retro", "Design Review"
+        ];
+
+        dateEl.textContent = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+        function renderTasks(targetCount, completedCount, isLocked) {
+            if (!targetCount || targetCount <= 0) {
+                tasksContainer.innerHTML = '<p class="text-secondary" style="font-size: 0.9rem;">No targets set for today.</p>';
+                targetBadge.textContent = '0 / 0';
+                if (submitBtn) submitBtn.disabled = true;
+                return;
+            }
+
+            let html = '';
+
+            // Fetch saved reasons
+            const me = data.employees.find(e => e.employeeId === myId);
+            const savedReasons = me.dailyTaskReasons?.[todayKey] || {};
+
+            for (let i = 0; i < targetCount; i++) {
+                const isChecked = i < completedCount; // First N are checked
+                const title = TASK_TITLES[i % TASK_TITLES.length]; // Cycle titles
+                const reason = savedReasons[i] || '';
+
+                let extraUI = '';
+                if (!isChecked) {
+                    if (isLocked) {
+                        // Read-only
+                        if (reason) {
+                            extraUI = `<span style="font-size: 0.8rem; color: #F59E0B; margin-left: auto; font-style: italic;">${reason}</span>`;
+                        }
+                    } else {
+                        // Dropdown
+                        extraUI = `
+                            <select class="task-reason-select" data-index="${i}" onclick="event.stopPropagation()" 
+                                style="margin-left: auto; padding: 4px 8px; font-size: 0.8rem; border: 1px solid var(--border-light); border-radius: 4px; color: var(--text-secondary);">
+                                <option value="" selected disabled>Select Reason...</option>
+                                <option value="Blocked">Blocked</option>
+                                <option value="Deferred">Deferred</option>
+                                <option value="Needs clarification">Needs Clarification</option>
+                                <option value="Time constraints">Time Constraints</option>
+                            </select>
+                        `;
+                    }
+                }
+
+                html += `
+                    <div style="display: flex; align-items: center; gap: 12px; padding: 12px; background: var(--bg-light); border-radius: 8px; opacity: ${isLocked ? 0.7 : 1};">
+                        <input type="checkbox" class="task-checkbox" data-index="${i}" 
+                            ${isChecked ? 'checked' : ''} 
+                            ${isLocked ? 'disabled' : ''}
+                            style="width: 18px; height: 18px; cursor: pointer; accent-color: var(--accent-blue);">
+                        <span style="${isChecked ? 'text-decoration: line-through; color: var(--text-secondary); flex: 1;' : 'font-weight: 500; flex: 1;'}">
+                            ${title}
+                        </span>
+                        ${extraUI}
+                    </div>
+                 `;
+            }
+            tasksContainer.innerHTML = html;
+            targetBadge.textContent = `${completedCount} / ${targetCount}`;
+
+            if (!isLocked) {
+                // Re-attach listeners due to innerHTML wipe
+                document.querySelectorAll('.task-checkbox').forEach(cb => {
+                    cb.addEventListener('change', handleTaskToggle);
+                });
+            }
+        }
+
+        function handleTaskToggle(e) {
+            const me = data.employees.find(e => e.employeeId === myId);
+            if (!me) return;
+
+            // Recalculate completed count directly from DOM
+            const checkboxes = document.querySelectorAll('.task-checkbox');
+            const newCompletedCount = Array.from(checkboxes).filter(cb => cb.checked).length;
+
+            // Update Data (Count Only)
+            me.dailyProgress = me.dailyProgress || {};
+            me.dailyProgress[todayKey] = newCompletedCount;
+
+            // Note: Productivity Calculation removed (User Request).
+            // It is only calculated on SUBMIT now.
+
+            commit();
+            updateUI();
+        }
+
+        function updateUI() {
+            const me = data.employees.find(e => e.employeeId === myId);
+
+            // --- Status Pill ---
+            statusEl.textContent = me.status.toUpperCase();
+            statusEl.style.color = getStatusColor(me.status);
+            statusEl.style.backgroundColor = 'rgba(0,0,0,0.05)';
+
+            // --- Check In/Out Logic ---
+            if (me.status === 'present') {
+                checkInBtn.disabled = true;
+                checkInBtn.style.opacity = 0.5;
+                checkOutBtn.disabled = false;
+                checkOutBtn.style.opacity = 1;
+                messageEl.textContent = "You are checked in.";
+            } else if (me.status === 'leave') {
+                checkInBtn.disabled = true;
+                checkOutBtn.disabled = true;
+                messageEl.textContent = "You are marked as ON LEAVE today.";
+            } else {
+                checkInBtn.disabled = false;
+                checkInBtn.style.opacity = 1;
+                checkOutBtn.disabled = true;
+                checkOutBtn.style.opacity = 0.5;
+                messageEl.textContent = "Please check in to start your day.";
+            }
+
+            // --- Render Checklist ---
+            const dailyTargets = me.dailyTargets || {};
+            const dailyProgress = me.dailyProgress || {};
+
+            // Init Submitted Object if missing
+            me.dailySubmitted = me.dailySubmitted || {};
+            const isSubmitted = !!me.dailySubmitted[todayKey];
+
+            // FALLBACK FOR DEMO: If today has no target, default to 8 so the UI isn't empty
+            let todaysTarget = dailyTargets[todayKey];
+            if (todaysTarget === undefined) {
+                todaysTarget = 8;
+                // Silently set it in data so it persists for this session?
+                // data.dailyTargets... no, let's just render it.
+                // Actually, if I render 8 but data says undefined, saving progress might break if targets is missing.
+                // Let's rely on the count passed.
+            }
+            // Actually, better to initialize it in memory if missing
+            if (!dailyTargets[todayKey]) {
+                me.dailyTargets = me.dailyTargets || {};
+                me.dailyTargets[todayKey] = 8;
+                todaysTarget = 8;
+            }
+
+            const todaysProgress = dailyProgress[todayKey] || 0;
+            renderTasks(todaysTarget, todaysProgress, isSubmitted);
+
+            // Toggle Submit Section
+            if (submitBtn && submitMsg) {
+                if (isSubmitted) {
+                    submitBtn.style.display = 'none';
+                    submitMsg.style.display = 'block';
+
+                    // Enhancement: Show Score
+                    const score = me.dailyProductivity[todayKey];
+                    const target = me.dailyTargets[todayKey] || 0;
+
+                    if (target === 0 || target === undefined) {
+                        submitMsg.innerHTML = `<span style="color: var(--text-secondary);">No targets assigned today</span>`;
+                    } else {
+                        // Color Logic
+                        let color = 'var(--text-secondary)'; // Gray fallback
+                        if (score >= 80) color = 'var(--status-success)'; // Green
+                        else if (score >= 50) color = '#F59E0B'; // Orange
+                        else color = 'var(--status-danger)'; // Red
+
+                        submitMsg.innerHTML = `<span style="color: ${color}; font-size: 1.1rem;">Today's Productivity: ${score}%</span>`;
+                    }
+
+                } else {
+                    submitBtn.style.display = 'block';
+                    submitBtn.disabled = false; // Enabled
+                    submitMsg.style.display = 'none';
+                }
+            }
+
+            // Update Chart if instance exists
+            if (window.myProductivityChartInstance) {
+                // ... same chart refresh logic ...
+                updateRealtimeChart(me);
+            }
+        }
+
+        function updateRealtimeChart(me) {
+            const labels = [];
+            const prodData = [];
+            const dailyTargets = me.dailyTargets || {};
+
+            for (let i = 6; i >= 0; i--) {
+                const d = new Date(now);
+                d.setDate(d.getDate() - i);
+                const k = d.toISOString().split('T')[0];
+
+                // Exclude N/A (Targets == 0 or undefined)
+                const target = dailyTargets[k];
+                if (target && target > 0) {
+                    labels.push(k === todayKey ? 'Today' : d.toLocaleDateString('en-US', { weekday: 'short' }));
+                    prodData.push(me.dailyProductivity[k] || 0);
+                }
+            }
+            window.myProductivityChartInstance.data.labels = labels;
+            window.myProductivityChartInstance.data.datasets[0].data = prodData;
+            window.myProductivityChartInstance.update();
+        }
+
+
+
+        // --- Event Listeners ---
+        // --- Geofencing & Camera Logic ---
+        const modal = document.getElementById('checkin-modal');
+        const video = document.getElementById('camera-stream');
+        const canvas = document.getElementById('camera-canvas');
+        const btnCapture = document.getElementById('btn-capture');
+        const locStatus = document.getElementById('location-status');
+        let stream = null;
+
+        window.closeCheckInModal = () => {
+            modal.style.display = 'none';
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+            }
+        };
+
+        checkInBtn.addEventListener('click', async () => {
+            modal.style.display = 'flex';
+            locStatus.textContent = "Requesting permissions...";
+            locStatus.style.color = "var(--text-secondary)";
+            btnCapture.disabled = true;
+
+            try {
+                // 1. Start Camera
+                stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                video.srcObject = stream;
+
+                // 2. Get Location
+                if (!navigator.geolocation) {
+                    throw new Error("Geolocation not supported");
+                }
+
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                        const userLat = pos.coords.latitude;
+                        const userLng = pos.coords.longitude;
+
+                        // Check against Office
+                        const office = getOfficeLocation();
+                        if (!office) {
+                            // Allow Check-in for Demo/Testing even if Office not set
+                            locStatus.textContent = "⚠️ Admin hasn't set office location. Allowing check-in for demo.";
+                            locStatus.style.color = "var(--status-warning)";
+                            btnCapture.disabled = false;
+                            return;
+                        }
+
+                        const dist = getDistanceFromLatLonInMeters(userLat, userLng, office.lat, office.lng);
+                        if (dist > 100) { // 100 meters tolerance
+                            // For Demo: Allow it but warn
+                            locStatus.textContent = `⚠️ You are ${Math.round(dist)}m away. Allowing check-in for demo.`;
+                            locStatus.style.color = "var(--status-warning)";
+                            btnCapture.disabled = false;
+                        } else {
+                            locStatus.textContent = `✅ Active in Office Area (${Math.round(dist)}m verified).`;
+                            locStatus.style.color = "var(--status-success)";
+                            btnCapture.disabled = false;
+                        }
+                    },
+                    (err) => {
+                        locStatus.textContent = "Loc Error: " + err.message + " (Allowing demo check-in)";
+                        locStatus.style.color = "var(--status-warning)";
+                        btnCapture.disabled = false;
+                    }
+                );
+
+            } catch (err) {
+                locStatus.textContent = "Camera/Location Error: " + err.message;
+                locStatus.style.color = "var(--status-danger)";
+            }
+        });
+
+        btnCapture.addEventListener('click', async () => {
+            // Capture Image
+            if (video.readyState !== 4 && video.readyState !== 4) {
+                // video.HAVE_ENOUGH_DATA = 4
+                // Just a safety check, though usually ready if user sees it
+            }
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+            const photoData = canvas.toDataURL('image/jpeg');
+
+            const btn = btnCapture;
+            btn.disabled = true;
+            btn.textContent = "Checking in...";
+
+            try {
+                // Perform Check In
+                await updateEmployeeStatus(myId, 'present');
+                const d = new Date();
+
+                await addAttendance({
+                    employeeId: myId,
+                    date: d.toISOString().split('T')[0],
+                    checkIn: d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    checkOut: '-',
+                    photo: photoData
+                });
+
+                // Re-fetch data to ensure UI updates with fresh state
+                await initData();
+                updateUI();
+                closeCheckInModal();
+                alert("Check-in successful! Welcome.");
+            } catch (err) {
+                alert("Check-in failed: " + err.message);
+                btn.disabled = false;
+                btn.textContent = "Capture & Check In";
+            }
+        });
+
+        // checkInBtn.addEventListener('click', () => { ... OLD LOGIC REMOVED ... });
+
+
+        checkOutBtn.addEventListener('click', () => {
+            updateEmployeeStatus(myId, 'absent');
+            updateUI();
+        });
+
+        if (submitBtn) {
+            submitBtn.addEventListener('click', () => {
+                const me = data.employees.find(e => e.employeeId === myId);
+                if (!me) return;
+
+                // 1. Calculate Productivity
+                const target = me.dailyTargets[todayKey] || 0;
+                const progress = me.dailyProgress[todayKey] || 0;
+
+                // Generate mock task objects for util
+                const tasks = Array.from({ length: target }).map((_, i) => ({
+                    completed: i < progress
+                }));
+
+                const score = calculateTaskBasedProductivity(tasks);
+
+                me.dailyProductivity = me.dailyProductivity || {};
+                me.dailyProductivity[todayKey] = (score === "N/A") ? 0 : score;
+
+                // 2. Capture Reasons
+                const reasons = {};
+                document.querySelectorAll('.task-reason-select').forEach(sel => {
+                    if (sel.value) {
+                        reasons[sel.dataset.index] = sel.value;
+                    }
+                });
+                me.dailyTaskReasons = me.dailyTaskReasons || {};
+                me.dailyTaskReasons[todayKey] = reasons;
+
+                // 3. Mark Submitted
+                me.dailySubmitted = me.dailySubmitted || {};
+                me.dailySubmitted[todayKey] = true;
+
+                // 4. Save
+                commit();
+
+                // 5. Update UI
+                updateUI();
+                alert(`Great job! Your productivity for today (${score}%) has been recorded.`);
+            });
+        }
+
+        updateUI();
+
+        // --- Chart Logic --- //
+        function initCharts() {
+            if (typeof Chart === 'undefined') {
+                setTimeout(initCharts, 100);
+                return;
+            }
+
+            const me = data.employees.find(e => e.employeeId === myId);
+
+            // 1. Attendance Chart
+            const stats = me.attendanceSummary || { presentDays: 0, absentDays: 0, leaveDays: 0 };
+            const ctxAtt = document.getElementById('myAttendanceChart').getContext('2d');
+            new Chart(ctxAtt, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Present', 'Absent', 'Leave'],
+                    datasets: [{
+                        data: [stats.presentDays, stats.absentDays, stats.leaveDays],
+                        backgroundColor: ['#10B981', '#F59E0B', '#3B82F6'],
+                        borderWidth: 0,
+                        hoverOffset: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'right', labels: { usePointStyle: true, boxWidth: 8 } }
+                    },
+                    cutout: '70%'
+                }
+            });
+
+            // 2. Productivity Chart (Dynamic from dailyProductivity)
+            const dailyProd = me.dailyProductivity || {};
+            const dailyTargets = me.dailyTargets || {};
+
+            // Get last 7 days keys
+            const labels = [];
+            const prodData = [];
+
+            for (let i = 6; i >= 0; i--) {
+                const d = new Date(now);
+                d.setDate(d.getDate() - i);
+                const k = d.toISOString().split('T')[0];
+
+                // Exclude N/A (Targets == 0 or undefined)
+                const target = dailyTargets[k];
+                if (target && target > 0) {
+                    // Label
+                    if (i === 0) labels.push('Today');
+                    else labels.push(d.toLocaleDateString('en-US', { weekday: 'short' }));
+
+                    // Data
+                    prodData.push(dailyProd[k] || 0);
+                }
+            }
+
+            const ctxProd = document.getElementById('myProductivityChart').getContext('2d');
+            window.myProductivityChartInstance = new Chart(ctxProd, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Productivity',
+                        data: prodData,
+                        borderColor: '#2563EB',
+                        backgroundColor: '#DBEAFE',
+                        borderWidth: 2,
+                        tension: 0.3,
+                        pointBackgroundColor: '#FFFFFF',
+                        pointBorderColor: '#2563EB',
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            grid: { color: '#F3F4F6' }
+                        },
+                        x: { grid: { display: false } }
+                    }
+                }
+            });
+        }
+
+        initCharts();
+    </script>
+</body>
+
+</html>

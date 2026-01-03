@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Admin Dashboard - Worklify</title>
+    <link rel="stylesheet" href="/style.css" />
+    <!-- Load Global Scripts (Chart.js via main.js) -->
+    <script src="/main.js" defer></script>
+</head>
+
+<body>
+    <div class="app-container">
+        <div id="sidebar-container"></div>
+        <div id="header-container"></div>
+
+        <main class="main-content">
+            <!-- Header Section -->
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px;">
+                <div>
+                    <h1>Dashboard</h1>
+                    <p class="page-subtitle">Welcome back, Admin. Real-time overview.</p>
+                    <p class="text-secondary" style="font-size: 0.8rem; margin-top: 4px;">Last Updated: <span
+                            id="last-updated">Syncing...</span></p>
+                </div>
+
+                <div style="display: flex; gap: 12px;">
+                    <button id="btn-config-office" class="btn btn-secondary" style="font-size: 0.9rem;">
+                        📍 Config Office
+                    </button>
+                    <a href="/admin/employees.html" class="btn btn-primary"
+                        style="font-size: 0.9rem; text-decoration: none; display: flex; align-items: center;">
+                        <span style="margin-right: 6px;">+</span> Add Employee
+                    </a>
+                </div>
+            </div>
+
+            <div style="margin-bottom: 24px;">
+                <span id="office-status" style="font-size: 0.85rem; color: var(--text-secondary);"></span>
+            </div>
+
+            <!-- Metrics Cards -->
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-bottom: 32px;">
+                <div class="card">
+                    <h3 id="stat-employees" style="font-size: 2rem; color: var(--accent-blue);">0</h3>
+                    <p class="text-secondary">Total Employees</p>
+                </div>
+                <div class="card">
+                    <h3 id="stat-present" style="font-size: 2rem; color: var(--status-success);">0</h3>
+                    <p class="text-secondary">Present Today</p>
+                </div>
+                <div class="card">
+                    <h3 id="stat-leave" style="font-size: 2rem; color: var(--status-info);">0</h3>
+                    <p class="text-secondary">On Leave</p>
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 24px;">
+                <!-- Left Column: Charts -->
+                <div style="display: flex; flex-direction: column; gap: 24px;">
+
+                    <!-- Filter Control -->
+                    <div class="card" style="padding: 16px; display: flex; align-items: center; gap: 16px;">
+                        <span style="font-weight: 600; font-size: 0.95rem;">View Analytics For:</span>
+                        <select id="analytics-filter" class="form-input" style="width: auto; min-width: 200px;">
+                            <option value="all">All Employees</option>
+                            <!-- JS will populate employees here -->
+                        </select>
+                    </div>
+
+                    <!-- Attendance Chart -->
+                    <div class="card">
+                        <h2 style="font-size: 1.25rem; margin-bottom: 16px;">Attendance Overview</h2>
+                        <div style="height: 300px; position: relative;">
+                            <canvas id="attendanceChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Productivity Chart -->
+                    <div class="card">
+                        <h2 style="font-size: 1.25rem; margin-bottom: 16px;">Productivity Trend (7 Days)</h2>
+                        <div style="height: 300px; position: relative;">
+                            <canvas id="productivityChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Team Productivity Overview -->
+                    <div class="card">
+                        <h2 style="font-size: 1.25rem; margin-bottom: 16px;">Team Throughput</h2>
+                        <div style="height: 300px; position: relative;">
+                            <canvas id="teamProductivityChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Column: Pending Actions -->
+                <div class="card" style="height: fit-content;">
+                    <h2 style="font-size: 1.25rem; margin-bottom: 16px;">Pending Actions</h2>
+                    <div id="pending-list" style="margin-top: 16px;">
+                        Loading...
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script type="module">
+        import { renderHeader } from '/shared/header.js';
+        import { renderSidebar } from '/shared/sidebar.js';
+        import { data, setOfficeLocation, getOfficeLocation, initData } from '/shared/data.js';
+
+        let attendanceChart = null;
+        let productivityChart = null;
+        let teamChart = null;
+
+        async function init() {
+            // 1. Fetch Data
+            await initData();
+            document.getElementById('last-updated').textContent = new Date().toLocaleTimeString();
+
+            // 2. Session Check
+            const sessionStr = localStorage.getItem('worklify_session');
+            if (!sessionStr) {
+                window.location.href = '/index.html';
+                return;
+            }
+            const session = JSON.parse(sessionStr);
+            if (session.role !== 'admin') {
+                window.location.href = '/index.html';
+                return;
+            }
+
+            // 3. Render Layout
+            renderHeader('header-container', session.name || 'Admin', 'AD');
+            renderSidebar('sidebar-container', 'dashboard', 'admin');
+
+            // 4. Render Dashboard Logic
+            renderDashboard();
+        }
+
+        function renderDashboard() {
+            const employees = data.employees;
+            const pendingLeaves = data.timeoff.filter(r => r.status === 'Pending');
+
+            // --- Stats ---
+            document.getElementById('stat-employees').textContent = employees.length;
+            document.getElementById('stat-present').textContent = employees.filter(e => e.status === 'present').length;
+            document.getElementById('stat-leave').textContent = employees.filter(e => e.status === 'leave').length;
+
+            // --- Pending Actions ---
+            const pendingList = document.getElementById('pending-list');
+            if (pendingLeaves.length === 0) {
+                pendingList.innerHTML = '<p class="text-secondary">No pending actions.</p>';
+            } else {
+                pendingList.innerHTML = pendingLeaves.map(req => `
+                    <div class="card" style="margin-bottom: 12px; padding: 12px; border: 1px solid var(--border-light); box-shadow: none;">
+                        <p style="font-weight: 500; margin-bottom: 4px;">${req.employeeName}</p>
+                        <p class="text-secondary" style="font-size: 0.85rem; margin-bottom: 8px;">${req.type} • ${req.startDate} to ${req.endDate}</p>
+                        <a href="/admin/timeoff.html" style="font-size: 0.85rem; color: var(--accent-blue); text-decoration: none; font-weight: 500;">Review Request &rarr;</a>
+                    </div>
+                `).join('');
+            }
+
+            // --- Office Config Logic ---
+            const btnConfig = document.getElementById('btn-config-office');
+            const officeStatus = document.getElementById('office-status');
+
+            function updateOfficeStatus() {
+                const loc = getOfficeLocation();
+                if (loc) {
+                    officeStatus.textContent = `✅ Office Location Set: ${loc.lat.toFixed(4)}, ${loc.lng.toFixed(4)}`;
+                    officeStatus.style.color = 'var(--status-success)';
+                } else {
+                    officeStatus.textContent = '⚠️ Office location not set yet.';
+                    officeStatus.style.color = 'var(--status-danger)';
+                }
+            }
+
+            btnConfig.addEventListener('click', () => {
+                if (!navigator.geolocation) return alert('Geolocation is not supported.');
+
+                if (confirm("Set CURRENT location as the Office Location? Employees will only be able to check in within 100m of this spot.")) {
+                    navigator.geolocation.getCurrentPosition((pos) => {
+                        setOfficeLocation(pos.coords.latitude, pos.coords.longitude);
+                        updateOfficeStatus();
+                        alert('Office location updated successfully!');
+                    }, (err) => {
+                        alert('Error getting location: ' + err.message);
+                    });
+                }
+            });
+            updateOfficeStatus();
+
+
+            // --- Filter Dropdown ---
+            const filterSelect = document.getElementById('analytics-filter');
+            filterSelect.innerHTML = '<option value="all">All Employees</option>'; // Reset
+            employees.forEach(emp => {
+                const opt = document.createElement('option');
+                opt.value = emp.id;
+                opt.textContent = emp.name;
+                filterSelect.appendChild(opt);
+            });
+
+            filterSelect.addEventListener('change', (e) => {
+                updateCharts(e.target.value);
+            });
+
+            // --- Init Charts ---
+            waitForChartJs(() => {
+                updateCharts('all');
+                renderTeamChart(employees);
+            });
+        }
+
+        function waitForChartJs(callback) {
+            if (typeof Chart !== 'undefined') {
+                callback();
+            } else {
+                setTimeout(() => waitForChartJs(callback), 100);
+            }
+        }
+
+        function updateCharts(filterValue) {
+            const employees = data.employees;
+            let targetSet = (filterValue === 'all') ? employees : employees.filter(e => e.id == filterValue);
+
+            // 1. Attendance Data
+            let totalPresent = 0, totalAbsent = 0, totalLeave = 0;
+            targetSet.forEach(emp => {
+                const stats = emp.attendanceSummary || { presentDays: 0, absentDays: 0, leaveDays: 0 };
+                totalPresent += stats.presentDays;
+                totalAbsent += stats.absentDays;
+                totalLeave += stats.leaveDays;
+            });
+
+            const ctxAtt = document.getElementById('attendanceChart').getContext('2d');
+            if (attendanceChart) attendanceChart.destroy();
+
+            attendanceChart = new Chart(ctxAtt, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Present', 'Absent', 'Leave'],
+                    datasets: [{
+                        data: [totalPresent, totalAbsent, totalLeave],
+                        backgroundColor: ['#10B981', '#F59E0B', '#3B82F6'],
+                        borderWidth: 0,
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false, cutout: '70%' }
+            });
+
+            // 2. Productivity Trend (Last 7 Days)
+            const days = 7;
+            const labels = Array.from({ length: days }, (_, i) => `Day ${i + 1}`);
+            let trendData = new Array(days).fill(0);
+
+            if (filterValue === 'all') {
+                let counts = new Array(days).fill(0);
+                targetSet.forEach(emp => {
+                    if (emp.productivityScores) {
+                        emp.productivityScores.forEach((score, i) => {
+                            if (i < days) {
+                                trendData[i] += score;
+                                counts[i]++;
+                            }
+                        });
+                    }
+                });
+                trendData = trendData.map((sum, i) => counts[i] ? Math.round(sum / counts[i]) : 0);
+            } else {
+                const emp = targetSet[0];
+                if (emp && emp.productivityScores) {
+                    trendData = emp.productivityScores.slice(0, days);
+                }
+            }
+
+            const ctxProd = document.getElementById('productivityChart').getContext('2d');
+            if (productivityChart) productivityChart.destroy();
+
+            productivityChart = new Chart(ctxProd, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Productivity',
+                        data: trendData,
+                        borderColor: '#2563EB',
+                        backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: { y: { beginAtZero: true, max: 100 } }
+                }
+            });
+        }
+
+        function renderTeamChart(employees) {
+            const ctxTeam = document.getElementById('teamProductivityChart').getContext('2d');
+            if (teamChart) teamChart.destroy();
+
+            // Mocking Team Data for Visual (Since we don't have teams defined strictly)
+            // We will aggregate all today.
+
+            // Let's show last 5 days average across whole company
+            const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+            const data = [75, 82, 78, 88, 91]; // Mock for UI demo as real historical data might be empty
+
+            teamChart = new Chart(ctxTeam, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Avg Efficiency',
+                        data: data,
+                        backgroundColor: ['#6366F1', '#8B5CF6', '#EC4899', '#10B981', '#F59E0B'],
+                        borderRadius: 4
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false }
+            });
+        }
+
+        init();
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Leave Management - Worklify</title>
+    <link rel="stylesheet" href="/style.css" />
+</head>
+
+<body>
+    <div class="app-container">
+        <div id="sidebar-container"></div>
+        <div id="header-container"></div>
+
+        <main class="main-content">
+            <h1>Request Time Off</h1>
+            <p class="page-subtitle">Manage your leave requests.</p>
+
+            <!-- Leave Balances -->
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-bottom: 32px;">
+                <div class="card">
+                    <h3 style="font-size: 2rem; color: var(--accent-blue);">12</h3>
+                    <p class="text-secondary">Vacation Days</p>
+                </div>
+                <div class="card">
+                    <h3 style="font-size: 2rem; color: var(--status-success);">5</h3>
+                    <p class="text-secondary">Sick Leave</p>
+                </div>
+                <div class="card">
+                    <h3 style="font-size: 2rem; color: var(--status-info);">2</h3>
+                    <p class="text-secondary">Personal Days</p>
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 32px; align-items: start;">
+                <!-- Form -->
+                <div class="card">
+                    <h3 style="margin-bottom: 16px;">New Request</h3>
+                    <form id="leave-form">
+                        <div class="form-group">
+                            <label class="form-label">Leave Type</label>
+                            <select class="form-input" id="leave-type">
+                                <option>Vacation</option>
+                                <option>Sick Leave</option>
+                                <option>Personal</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Start Date</label>
+                            <input type="date" class="form-input" id="start-date" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">End Date</label>
+                            <input type="date" class="form-input" id="end-date" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-full">Submit Request</button>
+                    </form>
+                </div>
+
+                <!-- History -->
+                <div class="card">
+                    <h3 style="margin-bottom: 16px;">My Requests</h3>
+                    <div class="table-container">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Type</th>
+                                    <th>Dates</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="my-requests-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script type="module">
+        import { renderHeader } from '/shared/header.js';
+        import { renderSidebar } from '/shared/sidebar.js';
+        import { data, addTimeOffRequest, initData } from '/shared/data.js';
+        import { getStatusColor } from '/shared/utils.js';
+
+        async function init() {
+            await initData();
+
+            // Session Check
+            const sessionStr = localStorage.getItem('worklify_session');
+            if (!sessionStr) {
+                window.location.href = '/index.html';
+                return;
+            }
+            const session = JSON.parse(sessionStr);
+            if (session.role !== 'employee') {
+                window.location.href = '/index.html';
+                return;
+            }
+
+            const myId = session.id;
+            const employees = data.employees;
+            const me = employees.find(e => e.employeeId === myId);
+
+            renderHeader('header-container', me ? me.name : 'Employee', me ? 'ME' : 'EM');
+            renderSidebar('sidebar-container', 'timeoff', 'employee');
+
+            function renderRequests() {
+                const tbody = document.getElementById('my-requests-tbody');
+                // Filter by string ID now
+                const requests = data.timeoff.filter(r => r.employeeId === myId);
+
+                // Sort newest first
+                requests.sort((a, b) => new Date(b.startDate) - new Date(a.startDate));
+
+                if (requests.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="3" class="text-secondary" style="text-align:center;">No requests yet.</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = requests.map(req => {
+                    let statusHtml = `<span style="color: ${getStatusColor(req.status)}; font-weight: 500;">${req.status}</span>`;
+
+                    // If rejected, show reason (check status only)
+                    if (req.status === 'Rejected') {
+                        const category = req.rejectionCategory || 'Reason';
+                        const reason = req.rejectionReason || 'No specific details provided.';
+
+                        statusHtml += `
+                            <div style="font-size: 0.8rem; margin-top: 4px; color: var(--status-danger);">
+                                <strong>${category}</strong>: ${reason}
+                            </div>
+                         `;
+                    }
+
+                    return `
+                    <tr>
+                        <td>${req.type}</td>
+                        <td>${req.startDate} - ${req.endDate}</td>
+                        <td>${statusHtml}</td>
+                    </tr>
+                `}).join('');
+            }
+
+            document.getElementById('leave-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const type = document.getElementById('leave-type').value;
+                const start = document.getElementById('start-date').value;
+                const end = document.getElementById('end-date').value;
+
+                // Basic validation
+                if (!start || !end) return;
+
+                const btn = e.target.querySelector('button');
+                btn.disabled = true;
+                btn.textContent = "Submitting...";
+
+                try {
+                    await addTimeOffRequest({
+                        employeeId: myId,
+                        type,
+                        startDate: start,
+                        endDate: end
+                    });
+
+                    e.target.reset();
+                    renderRequests();
+                    alert('Request submitted! Status is Pending.');
+                } catch (err) {
+                    alert("Error submitting request: " + err.message);
+                } finally {
+                    btn.disabled = false;
+                    btn.textContent = "Submit Request";
+                }
+            });
+
+            renderRequests();
+        }
+
+        init();
+    </script>
+</body>
+
+</html>

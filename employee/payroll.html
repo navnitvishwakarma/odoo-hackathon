@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>My Payroll - Worklify</title>
+    <link rel="stylesheet" href="/style.css" />
+</head>
+
+<body>
+    <div class="app-container">
+        <div id="sidebar-container"></div>
+        <div id="header-container"></div>
+
+        <main class="main-content">
+            <h1>My Payroll</h1>
+            <p class="page-subtitle">View your salary slips and payment history.</p>
+
+            <div class="card">
+                <div class="table-container">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Month/Year</th>
+                                <th>Basic</th>
+                                <th>HRA</th>
+                                <th>DA</th>
+                                <th>Deductions</th>
+                                <th>Net Salary</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="payroll-table-body">
+                            <!-- JS Injection -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Details Modal (Optional, but good for "View Slip") -->
+    <!-- For now, we just show details in table as per "View list of salary slips" requirement -->
+
+    <script type="module">
+        import { renderHeader } from '/shared/header.js';
+        import { renderSidebar } from '/shared/sidebar.js';
+        import { data, initData } from '/shared/data.js';
+
+        async function init() {
+            await initData();
+
+            // Session Check
+            const sessionStr = localStorage.getItem('worklify_session');
+            if (!sessionStr) {
+                window.location.href = '/index.html';
+                return;
+            }
+            const session = JSON.parse(sessionStr);
+            if (session.role !== 'employee') {
+                window.location.href = '/index.html';
+                return;
+            }
+
+            const myId = session.id;
+            const employees = data.employees;
+            const me = employees.find(e => e.employeeId === myId);
+
+            renderHeader('header-container', me ? me.name : 'Employee', me ? 'ME' : 'EM');
+            renderSidebar('sidebar-container', 'payroll', 'employee');
+
+            const tableBody = document.getElementById('payroll-table-body');
+
+            function renderTable() {
+                // Filter payrolls for this employee
+                // Using string employeeId
+                const myPayroll = (data.payroll || []).filter(p => p.employeeId === myId);
+
+                // Sort by latest
+                myPayroll.sort((a, b) => new Date(b.generatedDate) - new Date(a.generatedDate));
+
+                if (myPayroll.length === 0) {
+                    tableBody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">No salary slips found.</td></tr>';
+                    return;
+                }
+
+                tableBody.innerHTML = myPayroll.map(slip => `
+                    <tr>
+                        <td style="font-weight: 500;">${slip.month} ${slip.year}</td>
+                        <td>₹${slip.basic}</td>
+                        <td>₹${slip.hra}</td>
+                        <td>₹${slip.da}</td>
+                        <td style="color: var(--status-danger);">-₹${slip.deductions}</td>
+                        <td style="font-weight: 700; color: var(--status-success);">₹${slip.net.toLocaleString()}</td>
+                        <td><span style="background: #D1FAE5; color: #065F46; padding: 2px 8px; border-radius: 99px; font-size: 0.8rem;">Paid</span></td>
+                    </tr>
+                `).join('');
+            }
+
+            renderTable();
+        }
+
+        init();
+    </script>
+</body>
+
+</html>

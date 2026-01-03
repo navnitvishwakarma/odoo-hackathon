@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Attendance - Worklify</title>
+    <link rel="stylesheet" href="/style.css" />
+</head>
+
+<body>
+    <div class="app-container">
+        <div id="sidebar-container"></div>
+        <div id="header-container"></div>
+
+        <main class="main-content">
+            <h1>My Attendance</h1>
+            <p class="page-subtitle">View your daily check-in history.</p>
+
+            <div class="card" style="padding: 0;">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Check In</th>
+                            <th>Check Out</th>
+                            <th>Duration</th>
+                        </tr>
+                    </thead>
+                    <tbody id="attendance-tbody"></tbody>
+                </table>
+            </div>
+        </main>
+    </div>
+
+    <script type="module">
+        import { renderHeader } from '/shared/header.js';
+        import { renderSidebar } from '/shared/sidebar.js';
+        import { data, initData } from '/shared/data.js';
+
+        async function init() {
+            await initData();
+
+            // Session Check
+            const sessionStr = localStorage.getItem('worklify_session');
+            if (!sessionStr) {
+                window.location.href = '/index.html';
+                return;
+            }
+            const session = JSON.parse(sessionStr);
+            if (session.role !== 'employee') {
+                window.location.href = '/index.html';
+                return;
+            }
+
+            const myId = session.id; // String ID like "EMP001"
+            const employees = data.employees;
+            const me = employees.find(e => e.employeeId === myId);
+
+            renderHeader('header-container', me ? me.name : 'Employee', me ? 'ME' : 'EM');
+            renderSidebar('sidebar-container', 'attendance', 'employee');
+
+            const tbody = document.getElementById('attendance-tbody');
+
+            // Filter for logged-in user
+            const logs = data.attendance.filter(l => l.employeeId === myId);
+
+            // Sort logs desc (newest first)
+            logs.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+            if (logs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">No records found.</td></tr>';
+            } else {
+                tbody.innerHTML = logs.map(log => `
+                    <tr>
+                        <td>${log.date}</td>
+                        <td>${log.checkIn}</td>
+                        <td>${log.checkOut}</td>
+                        <td style="color: var(--accent-blue); font-weight: 500;">${calculateDuration(log.checkIn, log.checkOut)}</td>
+                    </tr>
+                 `).join('');
+            }
+        }
+
+        function calculateDuration(start, end) {
+            if (!start || !end || end === '-') return '-';
+            try {
+                // Simple parser for HH:MM AM/PM
+                const parseTime = (timeStr) => {
+                    const [time, modifier] = timeStr.split(' ');
+                    let [hours, minutes] = time.split(':');
+                    if (hours === '12') hours = '00';
+                    if (modifier === 'PM') hours = parseInt(hours, 10) + 12;
+                    return parseInt(hours, 10) * 60 + parseInt(minutes, 10);
+                };
+                const startMins = parseTime(start);
+                const endMins = parseTime(end);
+
+                // Handle overnight? (Not supported yet)
+                let diff = endMins - startMins;
+                if (diff < 0) diff += 24 * 60; // Just in case, wraps 24h
+
+                const h = Math.floor(diff / 60);
+                const m = diff % 60;
+                return `${h}h ${m}m`;
+            } catch (e) { return '-'; }
+        }
+
+        init();
+    </script>
+</body>
+
+</html>
