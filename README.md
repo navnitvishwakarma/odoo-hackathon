@@ -70,9 +70,7 @@ Follow these steps to set up the project locally.
     ```
     *   Create a `.env` file in the `Worklify/server` directory and add your MongoDB URI and JWT Secret:
         ```env
-        MONGO_URI=your_mongodb_connection_string
-        JWT_SECRET=your_jwt_secret_key
-        PORT=5000
+        MONGO_URI=**************
         ```
     *   Start the server:
         ```bash
